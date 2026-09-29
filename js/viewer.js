@@ -39,8 +39,8 @@ var Viewer = (function () {
 	}
 
 	function sameItem(a, b) {
-		if (a.src && b.src) return a.src === b.src;
-		if (a.file === b.file) return true;
+		if (a.src || b.src) return a.src === b.src;
+		if (a.file === b.file) return !!a.file;
 		if (a.path !== b.path || !a.file || !b.file) return false;
 		return a.file.size === b.file.size && a.file.lastModified === b.file.lastModified;
 	}

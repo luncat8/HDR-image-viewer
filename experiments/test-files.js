@@ -38,6 +38,31 @@ eq('fromInput keeps File', picked[0].file === list[4], true);
 eq('fromInput empty', Files.fromInput([]), []);
 eq('fromInput name fallback', Files.fromInput([file('z.png')])[0].path, 'z.png');
 
+// --- fromPaths: a pasted list, one path per line ---
+const BASE = 'file:///view/index.html';
+const srcs = (text, base) => Files.fromPaths(text, base || BASE).map(i => i.src);
+eq('fromPaths splits on newlines',
+	srcs('a.png\nb.png\r\nc.png'), ['file:///view/a.png', 'file:///view/b.png', 'file:///view/c.png']);
+eq('fromPaths trims and skips blank lines',
+	srcs('  a.png \n\n\n b.png  '), ['file:///view/a.png', 'file:///view/b.png']);
+eq('fromPaths keeps a single line', srcs('solo.png'), ['file:///view/solo.png']);
+eq('fromPaths resolves against the page, not the cwd',
+	srcs('sub/dir/a.png'), ['file:///view/sub/dir/a.png']);
+eq('fromPaths root relative', srcs('/pics/a.png'), ['file:///pics/a.png']);
+eq('fromPaths passes a web link through', srcs('https://e.com/a.png'), ['https://e.com/a.png']);
+eq('fromPaths keeps query and hash out of the extension test',
+	srcs('https://e.com/a.png?w=2#x'), ['https://e.com/a.png?w=2#x']);
+eq('fromPaths rejects non images', srcs('a.txt\nb.mp4\nc.png'), ['file:///view/c.png']);
+eq('fromPaths drops a windows drive path, a url scheme would swallow it',
+	srcs('C:\\pics\\a.png'), []);
+eq('fromPaths accepts a backslash relative path', srcs('sub\\a.png'), ['file:///view/sub/a.png']);
+eq('fromPaths drops other schemes', srcs('ftp://e.com/a.png\ndata:image/png;base64,AA'), []);
+eq('fromPaths empty', Files.fromPaths('', BASE), []);
+eq('fromPaths no base leaves nothing to resolve against', Files.fromPaths('a.png', 'nonsense:'), []);
+eq('fromPaths entries carry no File, only a path and a src',
+	Files.fromPaths('a.png', BASE).map(i => [i.file, i.path]), [[null, 'a.png']]);
+eq('fromPaths keeps the order it was pasted in', srcs('z.png\na.png'), ['file:///view/z.png', 'file:///view/a.png']);
+
 // --- mock FileSystemEntry tree (Firefox / classic API) ---
 const entry = (name, children) => ({
 	name,

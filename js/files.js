@@ -46,15 +46,18 @@ var Files = (function () {
 		return { file: file, path: path || file.webkitRelativePath || file.name, src: '' };
 	}
 
+	// one path per line: relative to the page, or an http(s) link used as it stands.
+	// a windows path is not reachable from a page, and a bare drive letter would be read
+	// as a url scheme, so it is dropped here rather than loading as a broken image
 	function fromPaths(text, base) {
-		var lines = String(text || '').split(/\\r?\\n/);
+		var lines = String(text || '').split(/\r?\n/);
 		var out = [];
 		for (var i = 0; i < lines.length; i++) {
-			var path = lines[i].trim();
+			var path = lines[i].trim().replace(/\\/g, '/');
 			if (!path || !EXT.has(extOf(path.split(/[?#]/)[0]))) continue;
+			if (!/^https?:\/\//i.test(path) && /^[a-z][a-z0-9+.-]*:/i.test(path)) continue;
 			try {
-				var src = new URL(path, base || document.baseURI).href;
-				out.push({ file: null, path: path, src: src });
+				out.push({ file: null, path: path, src: new URL(path, base || document.baseURI).href });
 			} catch (e) {}
 		}
 		return out;

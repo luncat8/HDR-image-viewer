@@ -311,7 +311,8 @@
 	}
 
 	Viewer.present = function (img, item, finish) {
-		Promise.all([Sniff.file(item.file), ready]).then(function (r) {
+		// a pasted path carries no bytes to sniff, so it takes the native route
+		Promise.all([item.file ? Sniff.file(item.file) : Promise.resolve(''), ready]).then(function (r) {
 			var kind = r[0];
 			if (kind || !gpuOk) return showNative(img, kind, finish);
 			showGpu(img, finish);

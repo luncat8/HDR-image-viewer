@@ -153,6 +153,9 @@ body.dropping::after {
 	min-width: 30px !important;
 }
 
+/* the path list actions take a row of their own, so the pickers keep one line each */
+#btnPaste, #btnCopyAll { flex: 0 0 calc(50% - 3px); }
+
 #listSub {
 	padding: 4px 12px;
 	border-bottom: 1px solid #222;

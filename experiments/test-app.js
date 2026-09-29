@@ -56,6 +56,7 @@ const mk = tag => {
 
 const els = {};
 global.document = {
+	baseURI: 'file:///view/index.html',
 	getElementById: id => els[id] || (els[id] = mk(id.indexOf('pick') === 0 ? 'input' : 'div')),
 	createElement: tag => mk(tag),
 	body: mk('body')
@@ -79,15 +80,18 @@ global.window = {
 const fire = (k, ev) => (winHandlers[k] || []).forEach(fn => fn(ev));
 
 let liveUrls = 0, madeUrls = 0;
-global.URL = {
-	createObjectURL: () => { liveUrls++; return 'blob:' + (++madeUrls); },
-	revokeObjectURL: u => { if (u) liveUrls--; }
-};
+// the real URL is kept, only the object url pair is counted, because fromPaths resolves with it
+global.URL.createObjectURL = () => { liveUrls++; return 'blob:' + (++madeUrls); };
+global.URL.revokeObjectURL = u => { if (u) liveUrls--; };
 let clock = 1000;
 global.performance = { now: () => clock };
 
 let copied = [];
-let clip = { writeText: t => { copied.push(t); return Promise.resolve(); } };
+let clipText = '';
+let clip = {
+	writeText: t => { copied.push(t); return Promise.resolve(); },
+	readText: () => Promise.resolve(clipText)
+};
 const setClip = c => Object.defineProperty(global, 'navigator',
 	{ value: c, configurable: true, writable: true });
 setClip({ clipboard: clip });
@@ -566,6 +570,68 @@ const drag = (kind, dt) => fire(kind, { dataTransfer: dt, preventDefault: () => 
 	copied = [];
 	press('KeyC');
 	eq('copy key is inert with no images', [copied.length, Viewer.count()], [0, 0]);
+
+	// --- path list: copy all, paste from the clipboard, paste event ---
+	const paste = (text, extra) => {
+		let stopped = 0;
+		fire('paste', Object.assign({
+			target: { tagName: 'BODY' },
+			clipboardData: { getData: () => text },
+			preventDefault: () => { stopped++; }
+		}, extra || {}));
+		return stopped;
+	};
+
+	copied = [];
+	els.btnCopyAll.click();
+	await tick();
+	eq('copy all with an empty list copies nothing', [copied.length, els.toast.textContent], [0, 'no images to copy']);
+
+	resetOpen([file('a.png', 'd/a.png'), file('b.png', 'd/b.png')]);
+	copied = [];
+	const blurredBefore = els.btnCopyAll.blurred || 0;
+	els.btnCopyAll.click();
+	await tick();
+	eq('copy all joins with a real newline, not a backslash-n', copied, ['d/a.png\nd/b.png']);
+	eq('copy all is confirmed', els.toast.textContent, 'image paths copied');
+	eq('copy all hands focus back to the page', els.btnCopyAll.blurred - blurredBefore, 1);
+
+	clipText = 'p1.png\np2.png';
+	els.btnPaste.click();
+	await tick();
+	eq('paste list adds every line', Viewer.count(), 4);
+	eq('pasted entries carry no File, only a src resolved from the page',
+		[Viewer.item(2).file, Viewer.item(2).src, Viewer.item(3).src],
+		[null, 'file:///view/p1.png', 'file:///view/p2.png']);
+	eq('paste list is reported', els.toast.textContent, '2 images');
+
+	clipText = 'a.txt\nnot an image';
+	els.btnPaste.click();
+	await tick();
+	eq('paste list with nothing usable warns and keeps the list',
+		[Viewer.count(), els.toast.textContent], [4, 'no image paths or URLs found']);
+
+	setClip({});
+	els.btnPaste.click();
+	await tick();
+	eq('a page that cannot read the clipboard says so', els.toast.textContent, 'clipboard read unavailable');
+	setClip({ clipboard: { writeText: clip.writeText, readText: () => Promise.reject(new Error('denied')) } });
+	els.btnPaste.click();
+	await tick();
+	eq('a refused clipboard read is reported', els.toast.textContent, 'clipboard read failed');
+	setClip({ clipboard: clip });
+
+	eq('a single path pastes without a newline', [paste('only.png'), Viewer.count()], [1, 5]);
+	eq('the single paste landed as a url backed entry', Viewer.item(4).src, 'file:///view/only.png');
+	eq('one entry added to a full list is named from its path, not from a File',
+		els.toast.textContent, 'only.png');
+	eq('a clipboard with no paths is left to the browser', [paste('hello there'), Viewer.count()], [0, 5]);
+	eq('an empty clipboard is left to the browser', [paste(''), Viewer.count()], [0, 5]);
+	eq('paste inside a text field is left alone',
+		[paste('only.png', { target: { tagName: 'INPUT' } }), Viewer.count()], [0, 5]);
+	eq('a paste with no event target is handled, not thrown on',
+		[paste('p1.png', { target: null }), Viewer.count()], [1, 5]);
+	eq('pasting what is already open does not duplicate', Viewer.count(), 5);
 
 	console.log(fail ? fail + ' FAILED' : 'app.js OK (' + pass + ' checks)');
 	process.exit(fail ? 1 : 0);

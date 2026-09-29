@@ -51,7 +51,8 @@
 		if (!items.length) return flash('no images found');
 		var added = Viewer.addImages(items);
 		if (!added) return flash('already opened');
-		flash(added === 1 ? Viewer.item(Viewer.count() - 1).file.name : added + ' images');
+		// a pasted path has no File, so the name comes from the path, never from item.file
+		flash(added === 1 ? name(Viewer.item(Viewer.count() - 1).path) : added + ' images');
 	}
 
 	Viewer.init(pic);
@@ -99,33 +100,41 @@
 		});
 	}
 
-	function pasteList(text) {
-		var items = Files.fromPaths(text, document.baseURI);
-		if (!items.length) return flash('no image paths or URLs found');
-		if (Viewer.count()) load(items);
-		else Viewer.setImages(items, 0);
+	// a page need not carry every menu button, so a missing one must not take the rest down
+	function menuAction(btn, fn) {
+		if (!btn) return;
+		btn.addEventListener('click', function () { fn(); btn.blur(); });
 	}
 
-	btnPaste.addEventListener('click', function () {
+	function apply(items) {
+		if (!items.length) return false;
+		if (Viewer.count()) load(items);
+		else Viewer.setImages(items, 0);
+		return true;
+	}
+
+	function pasteList(text) {
+		if (!apply(Files.fromPaths(text, document.baseURI))) flash('no image paths or URLs found');
+	}
+
+	menuAction(btnPaste, function () {
 		if (!navigator.clipboard || !navigator.clipboard.readText) return flash('clipboard read unavailable');
 		navigator.clipboard.readText().then(pasteList, function () { flash('clipboard read failed'); });
-		btnPaste.blur();
 	});
 
-	btnCopyAll.addEventListener('click', function () {
+	menuAction(btnCopyAll, function () {
 		var paths = [];
 		for (var i = 0; i < Viewer.count(); i++) paths.push(Viewer.item(i).path);
 		if (!paths.length) return flash('no images to copy');
-		copy(paths.join('\\n'), 'image paths copied');
-		btnCopyAll.blur();
+		copy(paths.join('\n'), 'image paths copied');
 	});
 
+	// ctrl-v on the page itself: only claimed when the clipboard really holds image paths,
+	// so any other paste is left to the browser
 	window.addEventListener('paste', function (e) {
-		if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
-		var text = e.clipboardData && e.clipboardData.getData('text/plain');
-		if (!text || !text.match(/\\r?\\n/)) return;
+		if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+		if (!apply(Files.fromPaths(e.clipboardData && e.clipboardData.getData('text/plain'), document.baseURI))) return;
 		e.preventDefault();
-		pasteList(text);
 	});
 
 	pick(document.getElementById('btnFiles'), pickFiles);
@@ -283,10 +292,7 @@
 			function () { flash('copy failed'); });
 	}
 
-	btnForget.addEventListener('click', function () {
-		Viewer.destroy();
-		btnForget.blur();
-	});
+	menuAction(btnForget, function () { Viewer.destroy(); });
 
 	var dropDepth = 0;
 	var dropToken = 0;
