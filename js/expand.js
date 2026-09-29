@@ -9,6 +9,7 @@
 
 	var STORE = 'hdr-viewer.gpu';
 	var DEFAULTS = { on: 1, black: 0, white: 1, exposure: 0, peak: 1.5, limit: 100 };
+	var SAVE_DELAY = 1000;       // a slider drag writes once, after it stops
 	var MIN_GAP = 0.02;          // black and white never cross or meet
 	var AUTO_CLIP = 0.0005;      // share of pixels auto levels lets clip at each end
 	var BINS = 256;
@@ -34,6 +35,7 @@
 	var bins = new Uint32Array(BINS);
 	var binsTotal = 0;
 	var histQueued = 0;
+	var saveTimer = 0;
 	var sampler = null;          // 2D context the histogram resample is read back from
 
 	// name -> [input, output, format]; the table drives sync, input and reset
@@ -58,6 +60,19 @@
 
 	function save() {
 		try { localStorage.setItem(STORE, JSON.stringify(s)); } catch (e) {}
+	}
+
+	// a drag fires an input event per frame; only the last one is worth a write
+	function saveSoon() {
+		clearTimeout(saveTimer);
+		saveTimer = setTimeout(function () { saveTimer = 0; save(); }, SAVE_DELAY);
+	}
+
+	function flushSave() {
+		if (!saveTimer) return;
+		clearTimeout(saveTimer);
+		saveTimer = 0;
+		save();
 	}
 
 	function apply() {
@@ -93,15 +108,15 @@
 		sliders[k][0].value = v;
 		sliders[k][1].textContent = sliders[k][2](v);
 		apply();
+		saveSoon();
 	}
 
 	function bindSlider(k) {
 		var input = sliders[k][0];
 		input.addEventListener('input', function () { set(k, +input.value); });
-		input.addEventListener('change', save);
 		// a focused slider would keep the arrow keys from paging images
 		input.addEventListener('pointerup', function () { input.blur(); });
-		input.addEventListener('dblclick', function () { set(k, DEFAULTS[k]); save(); });
+		input.addEventListener('dblclick', function () { set(k, DEFAULTS[k]); });
 	}
 
 	for (var k in sliders) bindSlider(k);
@@ -109,7 +124,7 @@
 	onBox.addEventListener('change', function () {
 		s.on = onBox.checked ? 1 : 0;
 		apply();
-		save();
+		saveSoon();
 		onBox.blur();
 	});
 
@@ -117,7 +132,7 @@
 		s.on = s.on ? 0 : 1;
 		onBox.checked = !!s.on;
 		apply();
-		save();
+		saveSoon();
 	}
 
 	btnReset.addEventListener('click', function () {
@@ -125,7 +140,7 @@
 		for (var k in DEFAULTS) s[k] = DEFAULTS[k];
 		s.limit = limit;   // reset belongs to the SDR group
 		sync();
-		save();
+		saveSoon();
 		btnReset.blur();
 	});
 
@@ -136,8 +151,12 @@
 		s.black = Math.min(lo, 1 - MIN_GAP);
 		s.white = Math.max(hi, s.black + MIN_GAP);
 		sync();
-		save();
+		saveSoon();
 	});
+
+	// leaving inside the debounce window must not lose the last adjustment
+	window.addEventListener('pagehide', flushSave);
+	document.addEventListener('visibilitychange', function () { if (document.hidden) flushSave(); });
 
 	function percentile(q) {
 		var want = q * binsTotal, sum = 0;

@@ -189,8 +189,6 @@ function probe() {
 		return lit > 1000;
 	}), true);
 
-	eq('settings persist', await page.evaluate(() => JSON.parse(localStorage.getItem('hdr-viewer.gpu')).peak), 1.5);
-
 	// PQ-tagged image: native <img>, the canvas texture is released
 	await page.keyboard.press('ArrowRight');
 	await page.waitForFunction(() => /b-pq\.png · 2\/2/.test(document.title));
@@ -219,6 +217,24 @@ function probe() {
 	eq('forget blanks both', [s.canvas, s.native, s.mode], [false, false, 'no image']);
 
 	eq('no page errors or WebGPU warnings', errors, []);
+
+	// settings persist: one debounced write after the last change, restored on the next load
+	await page.evaluate(() => localStorage.clear());
+	await setSlider('peak', 2.2);
+	await setSlider('limit', 40);
+	eq('nothing is written while the sliders move', await page.evaluate(() => localStorage.getItem('hdr-viewer.gpu')), null);
+	await new Promise(r => setTimeout(r, 1200));
+	eq('settings persist after the debounce', await page.evaluate(() => {
+		const v = JSON.parse(localStorage.getItem('hdr-viewer.gpu'));
+		return [v.peak, v.limit, v.white, v.exposure];
+	}), [2.2, 40, 1, 0]);
+	await page.reload();
+	await page.waitForFunction(() => !/starting/.test(document.getElementById('status').textContent));
+	eq('settings load on startup', await page.evaluate(() => [
+		+document.getElementById('peak').value, +document.getElementById('limit').value,
+		+document.getElementById('limitOut').textContent.replace('%', '')
+	]), [2.2, 40, 40]);
+	eq('no page errors after the reload', errors, []);
 
 	// the <img> page links back
 	await page.goto('file://' + path.join(__dirname, '..', 'index.html'));

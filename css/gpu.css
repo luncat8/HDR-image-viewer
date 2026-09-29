@@ -20,7 +20,6 @@
 #native.off { visibility: hidden; }
 
 #empty .warn { color: #d9b36a; max-width: 440px; }
-#empty a { color: #7cc4a0; pointer-events: auto; }
 
 #adjust {
 	flex: none;
