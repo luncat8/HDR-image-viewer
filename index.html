@@ -12,30 +12,27 @@
 	<p id="bad" hidden></p>
 </div>
 
-<div id="hud">
-	<span id="hudName"></span>
-	<span id="hudCount"></span>
-</div>
-
 <div id="empty">
-	<h1>Image viewer</h1>
-	<p>drop images or folders anywhere</p>
-	<div class="row">
-		<button id="btnFiles" type="button">Open files</button>
-		<button id="btnFolder" type="button">Open folder</button>
-	</div>
-	<p class="keys"><b>&larr;</b> <b>&rarr;</b> or <b>space</b>, scroll &mdash; previous / next</p>
+	<h1>Drop files or folders</h1>
+	<p>or move pointer to left edge / long press / <b>F</b> for menu</p>
+	<p class="keys">
+		<b>&larr;</b> <b>&rarr;</b> <b>space</b> or <b>wheel</b> &mdash; prev / next &middot;
+		<b>C</b> &mdash; copy path
+	</p>
 </div>
 
 <div id="toast"></div>
 
-<button id="btnList" type="button" class="hidden">Files</button>
-
 <aside id="list" hidden>
 	<header>
-		<span id="listCount"></span>
-		<button id="btnForget" type="button">Forget</button>
+		<button id="btnFiles" type="button">Open Files</button>
+		<button id="btnFolder" type="button">Open Folder</button>
+		<button id="btnForget" type="button" title="Forget all">Forget</button>
+		<button id="btnClose" type="button" title="Close">X</button>
 	</header>
+	<div id="listSub">
+		<span id="listCount">0 images</span>
+	</div>
 	<ol id="listItems"></ol>
 </aside>
 

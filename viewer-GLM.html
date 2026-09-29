@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Image Viewer</title>
+<style>
+	* { box-sizing: border-box; }
+	html, body {
+		margin: 0;
+		padding: 0;
+		height: 100%;
+		background: #0a0a0a;
+		color: #ddd;
+		font-family: -apple-system, system-ui, sans-serif;
+		overflow: hidden;
+		user-select: none;
+		-webkit-user-select: none;
+		touch-action: none;
+	}
+	#viewer {
+		position: fixed;
+		top: 0;
+		left: 0;
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
+		opacity: 0;
+		transition: opacity 0.15s;
+	}
+	#viewer.ready { opacity: 1; }
+	#hint {
+		position: fixed;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		color: #666;
+		font-size: 13px;
+		text-align: center;
+		pointer-events: none;
+		z-index: 1;
+	}
+	#hint.hidden { display: none; }
+	#hint .big {
+		font-size: 17px;
+		color: #aaa;
+		margin-bottom: 8px;
+	}
+	body.dragging #hint .big { color: #4a9; }
+	#dropBorder {
+		position: fixed;
+		inset: 8px;
+		border: 2px dashed transparent;
+		pointer-events: none;
+		z-index: 2;
+	}
+	body.dragging #dropBorder { border-color: #4a9; }
+	#edge {
+		position: fixed;
+		top: 0;
+		right: 0;
+		width: 16px;
+		height: 100%;
+		z-index: 5;
+	}
+	#menu {
+		position: fixed;
+		top: 0;
+		right: 0;
+		width: 320px;
+		max-width: 90vw;
+		height: 100%;
+		background: #1a1a1a;
+		border-left: 1px solid #333;
+		transform: translateX(100%);
+		transition: transform 0.18s ease;
+		z-index: 10;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+	}
+	#menu.open { transform: translateX(0); }
+	#menuHeader {
+		padding: 10px 12px;
+		border-bottom: 1px solid #2a2a2a;
+		display: flex;
+		gap: 6px;
+		flex-wrap: wrap;
+	}
+	#menuHeader button {
+		flex: 1;
+		min-width: 64px;
+		background: #2a2a2a;
+		color: #ddd;
+		border: 1px solid #3a3a3a;
+		padding: 7px 8px;
+		font-size: 12px;
+		cursor: pointer;
+		border-radius: 4px;
+	}
+	#menuHeader button:hover { background: #3a3a3a; }
+	#menuClose {
+		flex: 0 0 32px !important;
+		min-width: 32px !important;
+	}
+	#fileList {
+		flex: 1;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		padding: 4px 0;
+	}
+	#fileList:empty::before {
+		content: 'No files opened';
+		display: block;
+		padding: 16px;
+		color: #555;
+		font-size: 12px;
+		text-align: center;
+	}
+	.fileItem {
+		padding: 6px 10px;
+		border-bottom: 1px solid #222;
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		font-size: 12px;
+		cursor: pointer;
+	}
+	.fileItem:hover { background: #222; }
+	.fileItem.active { background: #2d3a2d; }
+	.fileName {
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.fileBtn {
+		background: transparent;
+		color: #888;
+		border: 1px solid #333;
+		padding: 3px 6px;
+		font-size: 10px;
+		border-radius: 3px;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+	.fileBtn:hover { color: #ddd; border-color: #555; }
+	.fileBtn.forget:hover { color: #f66; border-color: #600; }
+	#toast {
+		position: fixed;
+		bottom: 24px;
+		left: 50%;
+		transform: translateX(-50%) translateY(20px);
+		background: #2a2a2a;
+		color: #fff;
+		padding: 8px 16px;
+		border-radius: 4px;
+		font-size: 12px;
+		opacity: 0;
+		transition: opacity 0.2s, transform 0.2s;
+		pointer-events: none;
+		z-index: 20;
+		max-width: 80vw;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	#toast.show {
+		opacity: 1;
+		transform: translateX(-50%) translateY(0);
+	}
+	#fileInput, #dirInput { display: none; }
+	#loadingBar {
+		position: fixed;
+		top: 0;
+		left: 0;
+		height: 2px;
+		background: #4a9;
+		width: 0;
+		transition: width 0.2s;
+		z-index: 30;
+	}
+</style>
+</head>
+<body>
+	<img id="viewer" alt="" draggable="false">
+	<div id="hint">
+		<div class="big">Drop files or folders</div>
+		<div>or move pointer to right edge / long press</div>
+	</div>
+	<div id="dropBorder"></div>
+	<div id="edge"></div>
+	<div id="menu">
+		<div id="menuHeader">
+			<button id="btnFiles" type="button">Open Files</button>
+			<button id="btnFolder" type="button">Open Folder</button>
+			<button id="btnForgetAll" type="button" title="Forget all">Forget</button>
+			<button id="menuClose" type="button" title="Close">X</button>
+		</div>
+		<div id="fileList"></div>
+	</div>
+	<div id="toast"></div>
+	<div id="loadingBar"></div>
+	<input type="file" id="fileInput" multiple accept="image/*">
+	<input type="file" id="dirInput" webkitdirectory directory multiple>
+<script>
+	'use strict';
+
+	// state
+	const files = [];        // [{file, path}]
+	let currentIndex = -1;
+	let isLoading = false;
+	let navUntil = 0;
+	let currentUrl = '';
+	let loadId = 0;
+	let inMenu = false;
+	const DEBOUNCE = 100;
+
+	// elements
+	const img = document.getElementById('viewer');
+	const hint = document.getElementById('hint');
+	const menu = document.getElementById('menu');
+	const fileListEl = document.getElementById('fileList');
+	const toast = document.getElementById('toast');
+	const loadingBar = document.getElementById('loadingBar');
+
+	const IMAGE_RE = /\.(png|jpe?g|jpe|jfif|gif|webp|bmp|svg|avif|heic|heif|tiff?|ico|apng|jxl)$/i;
+
+	// ---- menu open/close (no screen-tinting overlay) ----
+	function openMenu() {
+		menu.classList.add('open');
+	}
+	function closeMenu() {
+		menu.classList.remove('open');
+		inMenu = false;
+	}
+	function toggleMenu() {
+		if (menu.classList.contains('open')) closeMenu();
+		else openMenu();
+	}
+	document.getElementById('menuClose').addEventListener('click', () => {
+		closeMenu();
+		document.getElementById('menuClose').blur();
+	});
+	document.getElementById('btnForgetAll').addEventListener('click', () => {
+		forgetAll();
+		document.getElementById('btnForgetAll').blur();
+	});
+	document.addEventListener('keydown', (e) => {
+		if (e.key === 'Escape') closeMenu();
+		else if (e.code === 'KeyF' && !e.ctrlKey && !e.metaKey && !e.altKey) toggleMenu();
+	});
+
+	// edge hover and pointer leave trigger
+	document.getElementById('edge').addEventListener('pointerenter', () => {
+		inMenu = true;
+		openMenu();
+	});
+	menu.addEventListener('pointerenter', () => { inMenu = true; });
+	menu.addEventListener('pointerleave', (e) => {
+		if (inMenu && e.clientX < window.innerWidth - menu.offsetWidth) closeMenu();
+	});
+
+	// long press or press outside to close
+	let pressTimer = null;
+	let pressStart = null;
+	document.addEventListener('pointerdown', (e) => {
+		if (e.button > 0) return;
+		if (e.target.closest('#menu') || e.target.closest('button')) return;
+		if (menu.classList.contains('open')) {
+			closeMenu();
+			return;
+		}
+		pressStart = { x: e.clientX, y: e.clientY };
+		pressTimer = setTimeout(() => {
+			openMenu();
+			pressTimer = null;
+		}, 450);
+	});
+	document.addEventListener('pointermove', (e) => {
+		if (pressTimer && pressStart) {
+			const dx = e.clientX - pressStart.x;
+			const dy = e.clientY - pressStart.y;
+			if (dx * dx + dy * dy > 144) {
+				clearTimeout(pressTimer);
+				pressTimer = null;
+			}
+		}
+	});
+	const cancelPress = () => {
+		if (pressTimer) {
+			clearTimeout(pressTimer);
+			pressTimer = null;
+		}
+	};
+	document.addEventListener('pointerup', cancelPress);
+	document.addEventListener('pointercancel', cancelPress);
+
+	// ---- natural sort & deduplication ----
+	function isImage(file) {
+		return !!file && IMAGE_RE.test(file.name || '');
+	}
+
+	function sameFile(a, b) {
+		if (a.file === b.file) return true;
+		if (a.path !== b.path) return false;
+		return a.file.size === b.file.size && a.file.lastModified === b.file.lastModified;
+	}
+
+	function findExisting(it) {
+		for (let i = 0; i < files.length; i++) {
+			if (sameFile(files[i], it)) return i;
+		}
+		return -1;
+	}
+
+	function addItems(items) {
+		const valid = [];
+		for (const it of items) {
+			if (!it || !isImage(it.file)) continue;
+			const path = it.path || it.file.webkitRelativePath || it.file.name;
+			valid.push({ file: it.file, path });
+		}
+		if (!valid.length) {
+			toastMsg('No images found');
+			return;
+		}
+		valid.sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true, sensitivity: 'base' }));
+		let added = 0;
+		for (const it of valid) {
+			if (findExisting(it) >= 0) continue;
+			files.push(it);
+			added++;
+		}
+		if (added > 0) {
+			renderFileList();
+			if (currentIndex < 0 && files.length > 0) loadImage(0);
+			else updateTitle();
+			toastMsg(added === 1 ? files[files.length - 1].file.name : added + ' images');
+		} else {
+			const target = findExisting(valid[0]);
+			if (target >= 0 && target !== currentIndex) showImage(target);
+			toastMsg('Already opened');
+		}
+	}
+
+	function addFileList(fileListLike) {
+		const items = [];
+		for (let i = 0; i < fileListLike.length; i++) {
+			items.push({ file: fileListLike[i] });
+		}
+		addItems(items);
+	}
+
+	function snapFlatFiles(dt) {
+		const out = [];
+		if (dt && dt.files && dt.files.length) {
+			for (let i = 0; i < dt.files.length; i++) out.push({ file: dt.files[i] });
+			return out;
+		}
+		const items = (dt && dt.items) || [];
+		for (let i = 0; i < items.length; i++) {
+			const it = items[i];
+			if (it && (!it.kind || it.kind === 'file') && it.getAsFile) {
+				const f = it.getAsFile();
+				if (f) out.push({ file: f });
+			}
+		}
+		return out;
+	}
+
+	async function walkHandle(handle, basePath, collected, fallbackFile) {
+		if (!handle) return;
+		if (handle.kind === 'file') {
+			try {
+				const file = await handle.getFile();
+				if (isImage(file)) {
+					const path = (basePath ? basePath + '/' : '') + handle.name;
+					collected.push({ file, path });
+				}
+			} catch (e) {
+				if (fallbackFile && isImage(fallbackFile)) {
+					const path = (basePath ? basePath + '/' : '') + (handle.name || fallbackFile.name);
+					collected.push({ file: fallbackFile, path });
+				}
+			}
+			return;
+		}
+		if (handle.kind === 'directory') {
+			if (handle.name && handle.name.charAt(0) === '.') return;
+			const subPath = basePath ? basePath + '/' + handle.name : handle.name;
+			try {
+				for await (const child of handle.values()) {
+					await walkHandle(child, subPath, collected, null);
+				}
+			} catch (e) {}
+		}
+	}
+
+	function walkEntry(entry, basePath, collected, fallbackFile) {
+		return new Promise((resolve) => {
+			if (!entry) return resolve();
+			if (entry.isFile) {
+				entry.file((file) => {
+					if (isImage(file)) {
+						const path = (basePath ? basePath + '/' : '') + entry.name;
+						collected.push({ file, path });
+					}
+					resolve();
+				}, () => {
+					if (fallbackFile && isImage(fallbackFile)) {
+						const path = (basePath ? basePath + '/' : '') + (entry.name || fallbackFile.name);
+						collected.push({ file: fallbackFile, path });
+					}
+					resolve();
+				});
+			} else if (entry.isDirectory) {
+				if (entry.name && entry.name.charAt(0) === '.') return resolve();
+				const reader = entry.createReader();
+				const readBatch = () => {
+					reader.readEntries(async (entries) => {
+						if (!entries.length) {
+							resolve();
+							return;
+						}
+						const subPath = basePath ? basePath + '/' + entry.name : entry.name;
+						for (const e of entries) {
+							await walkEntry(e, subPath, collected, null);
+						}
+						readBatch();
+					}, () => resolve());
+				};
+				readBatch();
+			} else {
+				resolve();
+			}
+		});
+	}
+
+	// Synchronously capture handles, entries, and flat files during the drop event tick.
+	// Chrome on file:// fails webkitGetAsEntry's file()/readEntries() with EncodingError,
+	// whereas getAsFileSystemHandle() works for both files and folders.
+	async function addDataTransfer(dt) {
+		const flat = snapFlatFiles(dt);
+		const items = (dt && dt.items) || [];
+		const handleJobs = [];
+		const entries = [];
+		for (let i = 0; i < items.length; i++) {
+			const it = items[i];
+			if (!it || (it.kind && it.kind !== 'file')) continue;
+			const f = it.getAsFile ? it.getAsFile() : null;
+			if (it.getAsFileSystemHandle) {
+				try {
+					const p = it.getAsFileSystemHandle();
+					if (p && p.then) handleJobs.push(p.then((h) => (h ? { handle: h, file: f } : null), () => null));
+				} catch (e) {}
+			}
+			if (it.webkitGetAsEntry) {
+				const entry = it.webkitGetAsEntry();
+				if (entry) entries.push({ entry, file: f });
+			}
+		}
+		if (handleJobs.length) {
+			const handles = (await Promise.all(handleJobs)).filter(Boolean);
+			if (handles.length) {
+				const collected = [];
+				for (const h of handles) {
+					await walkHandle(h.handle, '', collected, h.file);
+				}
+				if (collected.length) {
+					addItems(collected);
+					return;
+				}
+			}
+		}
+		if (entries.length) {
+			const collected = [];
+			for (const e of entries) {
+				await walkEntry(e.entry, '', collected, e.file);
+			}
+			if (collected.length) {
+				addItems(collected);
+				return;
+			}
+		}
+		if (flat.length) {
+			addItems(flat);
+		} else {
+			toastMsg('No images found');
+		}
+	}
+
+	// ---- drop ----
+	let dragCounter = 0;
+	document.addEventListener('dragenter', (e) => {
+		e.preventDefault();
+		if (!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes('Files')) return;
+		dragCounter++;
+		document.body.classList.add('dragging');
+	});
+	document.addEventListener('dragover', (e) => {
+		e.preventDefault();
+	});
+	document.addEventListener('dragleave', (e) => {
+		e.preventDefault();
+		dragCounter--;
+		if (dragCounter <= 0) {
+			dragCounter = 0;
+			document.body.classList.remove('dragging');
+		}
+	});
+	document.addEventListener('drop', async (e) => {
+		e.preventDefault();
+		dragCounter = 0;
+		document.body.classList.remove('dragging');
+		if (e.dataTransfer) {
+			await addDataTransfer(e.dataTransfer);
+		}
+	});
+
+	// ---- file inputs ----
+	document.getElementById('btnFiles').addEventListener('click', (e) => {
+		document.getElementById('fileInput').click();
+		e.currentTarget.blur();
+	});
+	document.getElementById('btnFolder').addEventListener('click', (e) => {
+		document.getElementById('dirInput').click();
+		e.currentTarget.blur();
+	});
+	document.getElementById('fileInput').addEventListener('change', (e) => {
+		addFileList(e.target.files);
+		e.target.value = '';
+	});
+	document.getElementById('dirInput').addEventListener('change', (e) => {
+		addFileList(e.target.files);
+		e.target.value = '';
+	});
+
+	// ---- load image ----
+	function releaseUrl() {
+		if (!currentUrl) return;
+		URL.revokeObjectURL(currentUrl);
+		currentUrl = '';
+	}
+
+	function loadImage(index) {
+		if (index < 0 || index >= files.length) return;
+		isLoading = true;
+		loadingBar.style.width = '30%';
+		const myId = ++loadId;
+
+		const item = files[index];
+		releaseUrl();
+		const url = URL.createObjectURL(item.file);
+		currentUrl = url;
+
+		const finish = (ok) => {
+			if (myId !== loadId) return;
+			isLoading = false;
+			navUntil = performance.now() + DEBOUNCE;
+			if (ok) {
+				img.classList.add('ready');
+				currentIndex = index;
+				loadingBar.style.width = '100%';
+				setTimeout(() => { loadingBar.style.width = '0'; }, 200);
+				updateTitle();
+				updateActiveItem();
+				hint.classList.add('hidden');
+			} else {
+				loadingBar.style.width = '0';
+				toastMsg('Failed to load: ' + item.path);
+			}
+		};
+
+		img.onload = () => {
+			if (myId !== loadId) return;
+			if (typeof img.decode === 'function') {
+				img.decode().then(() => finish(true), () => finish(true));
+				return;
+			}
+			finish(true);
+		};
+		img.onerror = () => finish(false);
+		img.classList.remove('ready');
+		img.src = url;
+	}
+
+	function canStep() {
+		return !isLoading && performance.now() >= navUntil;
+	}
+
+	function showImage(index) {
+		if (!canStep()) return;
+		if (files.length < 1) return;
+		const n = ((index % files.length) + files.length) % files.length;
+		if (n === currentIndex) return;
+		navUntil = performance.now() + DEBOUNCE;
+		loadImage(n);
+	}
+
+	function next() {
+		if (files.length > 1) showImage(currentIndex + 1);
+	}
+	function prev() {
+		if (files.length > 1) showImage(currentIndex - 1);
+	}
+
+	// keyboard
+	document.addEventListener('keydown', (e) => {
+		if (e.ctrlKey || e.metaKey || e.altKey || /^(INPUT|BUTTON|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+		if (e.key === 'ArrowRight' || e.code === 'KeyD' || e.code === 'PageDown') { e.preventDefault(); next(); }
+		else if (e.key === 'ArrowLeft' || e.code === 'KeyA' || e.code === 'PageUp' || e.code === 'Backspace') { e.preventDefault(); prev(); }
+		else if (e.key === ' ') { e.preventDefault(); if (e.shiftKey) prev(); else next(); }
+		else if (e.code === 'KeyC' && currentIndex >= 0) copyText(files[currentIndex].path);
+	});
+
+	// wheel - accumulate to notch threshold, ignore while loading or in post-load debounce
+	let wheelAcc = 0;
+	document.addEventListener('wheel', (e) => {
+		if (e.ctrlKey) return;
+		if (menu.classList.contains('open') && menu.contains(e.target)) return;
+		if (files.length < 2) return;
+		const d = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+		if (!d) return;
+		e.preventDefault();
+		if (!canStep()) {
+			wheelAcc = 0;
+			return;
+		}
+		wheelAcc += d;
+		if (Math.abs(wheelAcc) < 40) return;
+		const dir = wheelAcc > 0 ? 1 : -1;
+		wheelAcc = 0;
+		if (dir > 0) next();
+		else prev();
+	}, { passive: false });
+
+	// ---- file list ----
+	function renderFileList() {
+		fileListEl.innerHTML = '';
+		files.forEach((item, i) => {
+			const row = document.createElement('div');
+			row.className = 'fileItem' + (i === currentIndex ? ' active' : '');
+			row.dataset.index = String(i);
+
+			const name = document.createElement('div');
+			name.className = 'fileName';
+			name.textContent = item.path;
+			name.title = item.path;
+
+			const copyBtn = document.createElement('button');
+			copyBtn.className = 'fileBtn copy';
+			copyBtn.type = 'button';
+			copyBtn.textContent = 'Path';
+			copyBtn.title = 'Copy path';
+			copyBtn.addEventListener('click', (e) => {
+				e.stopPropagation();
+				copyText(item.path);
+				copyBtn.blur();
+			});
+
+			const forgetBtn = document.createElement('button');
+			forgetBtn.className = 'fileBtn forget';
+			forgetBtn.type = 'button';
+			forgetBtn.textContent = 'X';
+			forgetBtn.title = 'Forget';
+			forgetBtn.addEventListener('click', (e) => {
+				e.stopPropagation();
+				forgetBtn.blur();
+				forgetFile(i);
+			});
+
+			row.addEventListener('click', () => {
+				if (!isLoading) loadImage(i);
+			});
+
+			row.appendChild(name);
+			row.appendChild(copyBtn);
+			row.appendChild(forgetBtn);
+			fileListEl.appendChild(row);
+		});
+	}
+
+	function updateActiveItem() {
+		const rows = fileListEl.querySelectorAll('.fileItem');
+		rows.forEach((row) => {
+			const active = parseInt(row.dataset.index, 10) === currentIndex;
+			row.classList.toggle('active', active);
+			if (active) row.scrollIntoView({ block: 'nearest' });
+		});
+	}
+
+	function forgetAll() {
+		loadId++;
+		isLoading = false;
+		loadingBar.style.width = '0';
+		releaseUrl();
+		img.removeAttribute('src');
+		img.classList.remove('ready');
+		files.length = 0;
+		currentIndex = -1;
+		hint.classList.remove('hidden');
+		renderFileList();
+		updateTitle();
+		closeMenu();
+	}
+
+	function forgetFile(index) {
+		const item = files[index];
+		if (!item) return;
+		const wasCurrent = (index === currentIndex);
+
+		if (wasCurrent && isLoading) {
+			loadId++;
+			isLoading = false;
+			loadingBar.style.width = '0';
+		}
+
+		files.splice(index, 1);
+
+		if (currentIndex > index) currentIndex--;
+		if (currentIndex >= files.length) currentIndex = files.length - 1;
+
+		if (wasCurrent) {
+			if (files.length === 0) {
+				releaseUrl();
+				img.removeAttribute('src');
+				img.classList.remove('ready');
+				currentIndex = -1;
+				hint.classList.remove('hidden');
+			} else {
+				loadImage(Math.max(0, currentIndex));
+			}
+		}
+
+		renderFileList();
+		updateTitle();
+	}
+
+	function updateTitle() {
+		const item = files[currentIndex];
+		if (item) {
+			const size = img.naturalWidth ? ` · ${img.naturalWidth}×${img.naturalHeight}` : '';
+			document.title = `${item.path} · ${currentIndex + 1}/${files.length}${size}`;
+		} else {
+			document.title = 'Image Viewer';
+		}
+	}
+
+	// ---- helpers ----
+	let toastTimer = null;
+	function toastMsg(msg) {
+		toast.textContent = msg;
+		toast.classList.add('show');
+		clearTimeout(toastTimer);
+		toastTimer = setTimeout(() => toast.classList.remove('show'), 1500);
+	}
+
+	function copyText(text) {
+		if (!navigator.clipboard || !navigator.clipboard.writeText) {
+			toastMsg('Clipboard unavailable');
+			return;
+		}
+		navigator.clipboard.writeText(text).then(() => {
+			toastMsg('Copied: ' + text);
+		}, () => {
+			toastMsg('Copy failed');
+		});
+	}
+</script>
+</body>
+</html>

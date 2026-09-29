@@ -40,7 +40,7 @@ var Files = (function () {
 		return name.slice(dot + 1).toLowerCase();
 	}
 
-	function isImage(file) { return EXT.has(extOf(file.name)); }
+	function isImage(file) { return !!file && EXT.has(extOf(file.name || '')); }
 
 	function item(file, path) {
 		return { file: file, path: path || file.webkitRelativePath || file.name };
@@ -80,8 +80,25 @@ var Files = (function () {
 		});
 	}
 
-	// iterative tree walk. async callbacks call back into drain(), so nothing recurses on
-	// depth and each callback owns its own path binding instead of sharing a loop variable.
+	// FileSystemDirectoryHandle async iterator (used by getAsFileSystemHandle in Chrome)
+	function readHandleDir(dir) {
+		return new Promise(function (resolve) {
+			var out = [];
+			var it = dir.values ? dir.values() : (dir.entries ? dir.entries() : null);
+			if (!it || !it.next) return resolve(out);
+			var step = function () {
+				it.next().then(function (res) {
+					if (!res || res.done) return resolve(out);
+					var val = res.value;
+					out.push(Array.isArray(val) ? val[1] : val);
+					step();
+				}, function () { resolve(out); });
+			};
+			step();
+		});
+	}
+
+	// iterative tree walk supporting both FileSystemHandle (Chrome) and FileSystemEntry (Firefox)
 	function crawler() {
 		var out = [];
 		var stack = [];
@@ -101,31 +118,50 @@ var Files = (function () {
 			draining = true;
 			while (stack.length) {
 				var top = stack.pop();
-				take(top.entry, top.path);
+				take(top.entry, top.path, top.file);
 			}
 			draining = false;
 			settle();
 		};
 
-		function take(entry, path) {
+		function take(entry, path, fallback) {
 			if (!entry) return;
 			pending++;
+			if (entry.kind === 'file') {
+				entry.getFile().then(function (file) {
+					out.push(item(file, path));
+					pending--;
+					drain();
+				}, function () {
+					if (fallback) out.push(item(fallback, path));
+					pending--;
+					drain();
+				});
+				return;
+			}
 			if (entry.isFile) {
 				entry.file(function (file) {
 					out.push(item(file, path));
 					pending--;
 					drain();
-				}, function () { pending--; drain(); });
+				}, function () {
+					if (fallback) out.push(item(fallback, path));
+					pending--;
+					drain();
+				});
 				return;
 			}
 			// hidden dirs (.git, .thumbnails) hold no viewable content and are slow to walk
-			if (!entry.isDirectory || entry.name.charAt(0) === '.') {
+			var isDir = entry.kind === 'directory' || entry.isDirectory;
+			if (!isDir || (entry.name && entry.name.charAt(0) === '.')) {
 				pending--;
 				return;
 			}
-			readDir(entry.createReader()).then(function (children) {
+			var childrenPromise = entry.kind === 'directory' ? readHandleDir(entry) : readDir(entry.createReader());
+			childrenPromise.then(function (children) {
 				for (var i = 0; i < children.length; i++) {
-					stack.push({ entry: children[i], path: path + '/' + children[i].name });
+					var c = children[i];
+					stack.push({ entry: c, path: path + '/' + c.name, file: null });
 				}
 				pending--;
 				drain();
@@ -133,11 +169,10 @@ var Files = (function () {
 		}
 
 		return {
-			add: function (entry) {
-				stack.push({ entry: entry, path: entry.name || '' });
+			add: function (entry, file) {
+				stack.push({ entry: entry, path: entry.name || '', file: file || null });
 				drain();
 			},
-			// fires only once every added subtree has reported back
 			done: function (cb) {
 				if (pending) { waiting = cb; return; }
 				cb(out);
@@ -145,35 +180,88 @@ var Files = (function () {
 		};
 	}
 
-	// Chrome invalidates the DataTransferItem list once drop has fired: entries handed out
-	// during drop are null. They have to be taken while the drag is still live, so this is
-	// called from dragenter/dragover and the result is passed back in at drop time.
-	function captureEntries(dt) {
-		var items = dt && dt.items;
-		if (!items || !items.length || !items[0].webkitGetAsEntry) return [];
-		var out = [];
-		for (var i = 0; i < items.length; i++) {
-			var entry = items[i].webkitGetAsEntry();
-			if (entry) out.push(entry);
-		}
-		return out;
-	}
-
-	// entries captured during the drag; a plain file drop needs none and falls back to files
-	function fromDataTransfer(dt, entries) {
-		var list = entries && entries.length ? entries : captureEntries(dt);
-		if (!list.length) return Promise.resolve(fromInput((dt && dt.files) || []));
+	function walk(roots) {
+		if (!roots.length) return Promise.resolve([]);
 		var cr = crawler();
-		for (var i = 0; i < list.length; i++) cr.add(list[i]);
+		for (var i = 0; i < roots.length; i++) cr.add(roots[i].entry, roots[i].file);
 		return new Promise(function (resolve) {
 			cr.done(function (out) { resolve(collect(out)); });
+		});
+	}
+
+	// synchronously snapshot flat files before the drop event ends and clears dataTransfer
+	function snapFiles(dt) {
+		if (!dt) return [];
+		if (dt.files && dt.files.length) return fromInput(dt.files);
+		var items = dt.items || [];
+		var out = [];
+		for (var i = 0; i < items.length; i++) {
+			var it = items[i];
+			if (it && (!it.kind || it.kind === 'file') && it.getAsFile) {
+				var f = it.getAsFile();
+				if (f) out.push(item(f));
+			}
+		}
+		return collect(out);
+	}
+
+	function grabHandle(it, file) {
+		try {
+			var p = it.getAsFileSystemHandle();
+			if (!p || !p.then) return null;
+			return p.then(function (h) {
+				return h ? { entry: h, file: file } : null;
+			}, function () { return null; });
+		} catch (e) {
+			return null;
+		}
+	}
+
+	// On file:// in Chrome, webkitGetAsEntry's file()/readEntries() fails asynchronously with
+	// EncodingError, and by then dataTransfer.files is already cleared. Everything on
+	// dataTransfer must be captured synchronously during drop: getAsFileSystemHandle (works
+	// for folders and files on file:// in Chrome), webkitGetAsEntry (works in Firefox), and
+	// the flat files list as fallback.
+	function fromDataTransfer(dt) {
+		var flat = snapFiles(dt);
+		var items = (dt && dt.items) || [];
+		var handlePromises = [];
+		var entries = [];
+		for (var i = 0; i < items.length; i++) {
+			var it = items[i];
+			if (!it || (it.kind && it.kind !== 'file')) continue;
+			var f = it.getAsFile ? it.getAsFile() : null;
+			if (it.getAsFileSystemHandle) {
+				var hp = grabHandle(it, f);
+				if (hp) handlePromises.push(hp);
+			}
+			if (it.webkitGetAsEntry) {
+				var entry = it.webkitGetAsEntry();
+				if (entry) entries.push({ entry: entry, file: f });
+			}
+		}
+		var tryEntries = function () {
+			if (!entries.length) return Promise.resolve(flat);
+			return walk(entries).then(function (res) {
+				return res.length && res.length >= flat.length ? res : flat;
+			});
+		};
+		if (!handlePromises.length) return tryEntries();
+		return Promise.all(handlePromises).then(function (resolved) {
+			var handles = [];
+			for (var i = 0; i < resolved.length; i++) {
+				if (resolved[i]) handles.push(resolved[i]);
+			}
+			if (!handles.length) return tryEntries();
+			return walk(handles).then(function (res) {
+				return res.length && res.length >= flat.length ? res : tryEntries();
+			});
 		});
 	}
 
 	return {
 		isImage: isImage,
 		fromInput: fromInput,
-		captureEntries: captureEntries,
 		fromDataTransfer: fromDataTransfer,
 		natCmp: natCmp
 	};

@@ -1,5 +1,5 @@
 // node harness: drives js/viewer.js against a stub <img> to check the load lifecycle,
-// navigation wrap, stale-load rejection and object URL lifetime.
+// navigation wrap, stale-load rejection, deduplication, per-file removal, and URL lifetime.
 // usage: node experiments/test-viewer.js
 'use strict';
 const path = require('path');
@@ -13,8 +13,6 @@ const eq = (name, got, want) => {
 };
 
 // --- stub <img> ---
-// the viewer reuses one element, so a request record must snapshot the handlers installed
-// just before src was set, or every record would alias the same element
 const requests = [];
 const pic = {
 	naturalWidth: 0, naturalHeight: 0,
@@ -60,6 +58,11 @@ go(() => {}, 200, 100);
 eq('reported geometry', events.pop(), ['a.png', 0, 3, 200, 100, 0]);
 eq('url survives decode', live, 1);
 
+eq('current item with no index', Viewer.item().path, 'a.png');
+eq('current item with a negative index', Viewer.item(-1).path, 'a.png');
+eq('indexed item', Viewer.item(2).path, 'c.png');
+eq('out of range item is null', Viewer.item(9), null);
+
 // --- switching releases the previous blob ---
 go(next, 300, 900);
 eq('one url alive after switch', live, 1);
@@ -87,25 +90,71 @@ eq('single image keeps one url', live, 1);
 eq('first/last are safe on one image', [Viewer.first(), Viewer.last(), Viewer.index()], [undefined, undefined, 0]);
 eq('re-setting the same list reloads', (Viewer.setImages([item('only.png')], 0), requests.length), 1);
 
-// --- stale load from a superseded jump is dropped ---
-requests.length = 0;                // earlier probes left undecoded records behind
-Viewer.setImages([item('x.png'), item('y.png')], 0);
-next();                            // supersede the first request before it decodes
-eq('two pending loads', requests.length, 2);
+// --- a step that arrives before the frame is up is dropped, not queued ---
+requests.length = 0;
+Viewer.setImages([item('x.png'), item('y.png'), item('z.png')], 0);
+next(); next(); next();
+eq('one request while loading', requests.length, 1);
+eq('the index does not walk ahead of the picture', Viewer.index(), 0);
 const eventsBefore = events.length;
-requests[0].el.naturalWidth = 999;
-requests[0].el.naturalHeight = 999;
-requests[0].onload.call(requests[0].el);
-eq('stale load ignored', events.length, eventsBefore);
 go(() => {}, 640, 480);
-eq('current load reported', events.pop(), ['y.png', 1, 2, 640, 480, 0]);
-eq('superseded url revoked immediately', live, 1);
+eq('the load in flight is the one reported', events.pop(), ['x.png', 0, 3, 640, 480, 0]);
+eq('dropped steps report nothing', events.length, eventsBefore);
+next();
+eq('a step after the decode moves', Viewer.index(), 1);
+eq('the step is the only request in the air', requests.length, 1);
+go(() => {}, 800, 600);
+eq('reported after the step', events.pop(), ['y.png', 1, 3, 800, 600, 0]);
+
+// --- async img.decode() holds busy until pixel decode finishes ---
+let resolveDecode = null;
+pic.decode = () => new Promise(r => { resolveDecode = r; });
+next();
+const reqDecode = requests.pop();
+reqDecode.onload.call(pic);   // onload fired (Firefox style), but decode() has not resolved yet
+eq('busy stays true while img.decode() is pending', Viewer.busy(), true);
+next(); prev();
+eq('steps during pending img.decode() are dropped', [Viewer.index(), requests.length], [2, 0]);
+delete pic.decode;
+
+// --- a new set supersedes the frame still decoding ---
+requests.length = 0;
+Viewer.setImages([item('x.png'), item('y.png')], 0);
+const beforeSet = events.length;
+Viewer.setImages([item('p.png'), item('q.png')], 0);
+eq('the new set does not wait for the old load', requests.length, 2);
+requests[0].onload.call(requests[0].el);
+eq('stale load ignored', events.length, beforeSet);
+go(() => {}, 300, 300);
+eq('the new set is reported', events.pop(), ['p.png', 0, 2, 300, 300, 0]);
+
+// --- addImages: deduplication and incremental add ---
+requests.length = 0;
+eq('adding already-open files adds 0', Viewer.addImages([item('p.png'), item('q.png')]), 0);
+eq('count unchanged after duplicate add', Viewer.count(), 2);
+eq('adding overlapping set adds only new files', Viewer.addImages([item('q.png'), item('r.png')]), 1);
+eq('count reflects only new file', Viewer.count(), 3);
+eq('current image stays on screen without reload', [Viewer.index(), requests.length], [0, 0]);
+go(() => Viewer.addImages([item('r.png')]), 300, 300);
+eq('adding an already-open single file jumps to it without duplicating', [Viewer.count(), Viewer.index()], [3, 2]);
+
+// --- remove: per-file forget ---
+Viewer.remove(0);   // remove p.png before current index (2)
+eq('removing earlier item shifts index down', [Viewer.count(), Viewer.index(), Viewer.item().path], [2, 1, 'r.png']);
+go(() => Viewer.remove(1), 100, 100);   // remove current item r.png
+eq('removing current item loads remaining item', [Viewer.count(), Viewer.index(), Viewer.item().path], [1, 0, 'q.png']);
+Viewer.remove(0);   // remove last remaining item
+eq('removing last item empties viewer', [Viewer.count(), Viewer.index(), live], [0, -1, 0]);
 
 // --- decode failure ---
-go(prev, 0, 0, true);
-eq('failure reported', events.pop(), ['x.png', 0, 2, 0, 0, 1]);
-go(next, 1, 1);
-eq('recovers from a failure', events.pop(), ['y.png', 1, 2, 1, 1, 0]);
+requests.length = 0;
+Viewer.setImages([item('p.png'), item('q.png')], 0);
+go(() => {}, 300, 300);
+go(next, 0, 0, true);
+eq('failure reported', events.pop(), ['q.png', 1, 2, 0, 0, 1]);
+go(prev, 1, 1);
+eq('recovers from a failure', events.pop(), ['p.png', 0, 2, 1, 1, 0]);
+eq('a failed frame releases the viewer', (next(), requests.length), 1);
 
 // --- teardown ---
 Viewer.destroy();
@@ -113,6 +162,7 @@ eq('destroy frees urls', live, 0);
 Viewer.setImages([], 0);
 eq('empty list detaches src', pic.src, '');
 eq('empty list reported', events.pop(), ['', -1, 0, 0, 0, 0]);
+eq('current item is null with no images', Viewer.item(), null);
 
 console.log(fail ? fail + ' FAILED' : 'viewer.js OK (' + pass + ' checks)');
 process.exit(fail ? 1 : 0);

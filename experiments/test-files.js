@@ -1,4 +1,4 @@
-// node harness: exercises js/files.js with a mock File / FileSystemEntry tree.
+// node harness: exercises js/files.js with mock File, FileSystemEntry, and FileSystemHandle trees.
 // usage: node experiments/test-files.js
 'use strict';
 const path = require('path');
@@ -38,7 +38,7 @@ eq('fromInput keeps File', picked[0].file === list[4], true);
 eq('fromInput empty', Files.fromInput([]), []);
 eq('fromInput name fallback', Files.fromInput([file('z.png')])[0].path, 'z.png');
 
-// --- mock FileSystemEntry tree for drag & drop ---
+// --- mock FileSystemEntry tree (Firefox / classic API) ---
 const entry = (name, children) => ({
 	name,
 	isFile: !children,
@@ -46,11 +46,25 @@ const entry = (name, children) => ({
 	createReader: () => {
 		let sent = false;
 		return {
-			// force 100-per-batch delivery the way Chrome does
 			readEntries: cb => setTimeout(() => cb(sent ? [] : (sent = true, children)), 0)
 		};
 	},
 	file: cb => setTimeout(() => cb(file(name, '')), 0)
+});
+
+// --- mock FileSystemHandle tree (Chrome getAsFileSystemHandle API) ---
+const handle = (name, children) => ({
+	name,
+	kind: children ? 'directory' : 'file',
+	getFile: () => Promise.resolve(file(name, '')),
+	values: () => {
+		let i = 0;
+		return {
+			next: () => Promise.resolve(i < children.length
+				? { done: false, value: children[i++] }
+				: { done: true })
+		};
+	}
 });
 
 const bulk = [];
@@ -64,20 +78,16 @@ const tree = entry('photos', [
 	entry('wide', bulk)
 ]);
 
-const live = { files: [], items: [{ webkitGetAsEntry: () => tree }] };
-// what a real drop event sees: Chrome has already invalidated the item list
-const spent = { files: [], items: [{ webkitGetAsEntry: () => null }] };
+const handleTree = handle('album', [
+	handle('p10.png'),
+	handle('p2.png'),
+	handle('.git', [handle('ignored.png')]),
+	handle('nested', [handle('z.avif'), handle('readme.md')])
+]);
 
-// --- captureEntries, and the walk driven by what it captured ---
 (async () => {
-	eq('captures live entries', Files.captureEntries(live).length, 1);
-	eq('captures nothing once spent', Files.captureEntries(spent).length, 0);
-	eq('captures nothing without the api', Files.captureEntries({ files: [], items: [{}] }).length, 0);
-	eq('captures nothing from an empty transfer', Files.captureEntries({ files: [], items: [] }).length, 0);
-	eq('captures nothing from nothing', Files.captureEntries(null).length, 0);
-
-	// entries captured mid-drag drive the walk, even though the transfer is spent by drop time
-	const out = await Files.fromDataTransfer(spent, Files.captureEntries(live));
+	// Firefox / webkitGetAsEntry tree walk
+	const out = await Files.fromDataTransfer({ files: [], items: [{ webkitGetAsEntry: () => tree }] });
 	eq('drop count', out.length, 254);
 	eq('drop first', out[0].path, 'photos/b.png');
 	eq('drop skips hidden', out.some(i => i.path.indexOf('.hidden') >= 0), false);
@@ -87,16 +97,62 @@ const spent = { files: [], items: [{ webkitGetAsEntry: () => null }] };
 	eq('drop order is numeric', out.slice(4, 8).map(i => i.path),
 		['photos/wide/p1.png', 'photos/wide/p2.png', 'photos/wide/p3.png', 'photos/wide/p4.png']);
 
-	// with nothing captured and nothing readable, the drop is simply empty
-	eq('spent transfer, no entries', (await Files.fromDataTransfer(spent, [])).length, 0);
-	eq('spent transfer, live capture', (await Files.fromDataTransfer(spent)).length, 0);
-	eq('no second argument still walks', (await Files.fromDataTransfer(live)).length, 254);
+	// Chrome Windows file:// directory drop: getAsFileSystemHandle works when webkitGetAsEntry fails
+	const brokenEntry = {
+		name: 'album', isFile: false, isDirectory: true,
+		createReader: () => ({ readEntries: (ok, err) => setTimeout(() => err(new Error('EncodingError')), 0) })
+	};
+	const chromeDrop = await Files.fromDataTransfer({
+		files: [],
+		items: [{
+			kind: 'file',
+			getAsFileSystemHandle: () => Promise.resolve(handleTree),
+			webkitGetAsEntry: () => brokenEntry
+		}]
+	});
+	eq('chrome handle walk count', chromeDrop.length, 3);
+	eq('chrome handle walk paths', chromeDrop.map(i => i.path),
+		['album/nested/z.avif', 'album/p2.png', 'album/p10.png']);
 
-	// plain file drop: no entries, falls back to the file list, non-images filtered
-	const flat = await Files.fromDataTransfer(
-		{ files: [file('b.png'), file('a.png'), file('x.zip')], items: [{ webkitGetAsEntry: () => null }] }, []);
+	// Chrome Windows file:// file drop where webkitGetAsEntry.file() fails asynchronously and
+	// dt.files is cleared by the browser as soon as the synchronous drop handler returns
+	const transientDt = {
+		files: [file('b.png'), file('a.png'), file('doc.pdf')],
+		items: [{
+			kind: 'file',
+			getAsFile: () => file('b.png'),
+			webkitGetAsEntry: () => ({
+				name: 'b.png', isFile: true, isDirectory: false,
+				file: (ok, err) => setTimeout(() => err(new Error('EncodingError')), 0)
+			})
+		}]
+	};
+	const p = Files.fromDataTransfer(transientDt);
+	transientDt.files = [];
+	transientDt.items = [];
+	const recovered = await p;
+	eq('synchronous snapshot survives async EncodingError and cleared dt.files',
+		recovered.map(i => i.path), ['a.png', 'b.png']);
+
+	// Fallback when getAsFileSystemHandle rejects (e.g. insecure context)
+	const fallbackWalk = await Files.fromDataTransfer({
+		files: [],
+		items: [{
+			kind: 'file',
+			getAsFileSystemHandle: () => Promise.reject(new Error('SecurityError')),
+			webkitGetAsEntry: () => handleTree ? entry('dir', [entry('img.png')]) : null
+		}]
+	});
+	eq('falls back to webkitGetAsEntry when handle rejects', fallbackWalk.map(i => i.path), ['dir/img.png']);
+
+	// Plain file drop with no entries
+	const flat = await Files.fromDataTransfer({
+		files: [file('b.png'), file('a.png'), file('x.zip')],
+		items: [{ webkitGetAsEntry: () => null }]
+	});
 	eq('fallback paths', flat.map(i => i.path), ['a.png', 'b.png']);
-	eq('empty drop', (await Files.fromDataTransfer({ files: [], items: [] }, [])).length, 0);
+	eq('empty drop', (await Files.fromDataTransfer({ files: [], items: [] })).length, 0);
+	eq('null drop', (await Files.fromDataTransfer(null)).length, 0);
 
 	console.log(fail ? fail + ' FAILED' : 'files.js OK (' + pass + ' checks)');
 	process.exit(fail ? 1 : 0);

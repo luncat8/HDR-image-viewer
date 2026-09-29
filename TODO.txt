@@ -1,0 +1,10 @@
+compare index and GLM implementations
+
+GLM has better menu style and buttons in it, but bug with same files add again. also do not need tint main screen while menu opened.
+
+both has chrome-windows bug with drop - no files found. firefox drop open good.
+
+in index also bug with event queue need or debounce and/or ignore next/prev till image actually opened
+
+last commit has failed attempts to fix these bugs in index.html, so probably also need to clean of useless leftovers because they actually not fix it.
+
