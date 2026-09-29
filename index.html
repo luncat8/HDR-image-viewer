@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Image Viewer</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="stage">
+	<img id="pic" alt="" draggable="false">
+	<p id="bad" hidden></p>
+</div>
+
+<div id="hud">
+	<span id="hudName"></span>
+	<span id="hudCount"></span>
+</div>
+
+<div id="empty">
+	<h1>Image viewer</h1>
+	<p>drop images or folders anywhere</p>
+	<div class="row">
+		<button id="btnFiles" type="button">Open files</button>
+		<button id="btnFolder" type="button">Open folder</button>
+	</div>
+	<p class="keys"><b>&larr;</b> <b>&rarr;</b> or <b>space</b>, scroll &mdash; previous / next</p>
+</div>
+
+<div id="toast"></div>
+
+<button id="btnList" type="button" class="hidden">Files</button>
+
+<aside id="list" hidden>
+	<header>
+		<span id="listCount"></span>
+		<button id="btnForget" type="button">Forget</button>
+	</header>
+	<ol id="listItems"></ol>
+</aside>
+
+<input type="file" id="pickFiles" accept="image/*" multiple hidden>
+<input type="file" id="pickFolder" webkitdirectory directory multiple hidden>
+
+<script src="js/files.js"></script>
+<script src="js/viewer.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

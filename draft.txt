@@ -1,0 +1,15 @@
+minimal image viewer
+
+user open or drop or 1 or multiple folder or files, using file api
+
+L R arrows and space to view next prev image whole page, keep aspect ratio
+
+list of opened files and button to forget it (release handler and memory if keep). open files menu on pointer near side of window or long press. near file create button to copy path to clipboard
+
+info to page title
+
+
+typical bugs:
+drop cause 'no image found'
+use SRD canvas fail with HDR images. need or <img> tag this is better, or webGPU canvas 16bit
+
