@@ -19,6 +19,8 @@
 	var pickFolder = document.getElementById('pickFolder');
 	var panel = document.getElementById('list');
 	var btnForget = document.getElementById('btnForget');
+	var btnPaste = document.getElementById('btnPaste');
+	var btnCopyAll = document.getElementById('btnCopyAll');
 	var btnClose = document.getElementById('btnClose');
 	var listCount = document.getElementById('listCount');
 	var listItems = document.getElementById('listItems');
@@ -96,6 +98,35 @@
 			btn.blur();
 		});
 	}
+
+	function pasteList(text) {
+		var items = Files.fromPaths(text, document.baseURI);
+		if (!items.length) return flash('no image paths or URLs found');
+		if (Viewer.count()) load(items);
+		else Viewer.setImages(items, 0);
+	}
+
+	btnPaste.addEventListener('click', function () {
+		if (!navigator.clipboard || !navigator.clipboard.readText) return flash('clipboard read unavailable');
+		navigator.clipboard.readText().then(pasteList, function () { flash('clipboard read failed'); });
+		btnPaste.blur();
+	});
+
+	btnCopyAll.addEventListener('click', function () {
+		var paths = [];
+		for (var i = 0; i < Viewer.count(); i++) paths.push(Viewer.item(i).path);
+		if (!paths.length) return flash('no images to copy');
+		copy(paths.join('\\n'), 'image paths copied');
+		btnCopyAll.blur();
+	});
+
+	window.addEventListener('paste', function (e) {
+		if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+		var text = e.clipboardData && e.clipboardData.getData('text/plain');
+		if (!text || !text.match(/\\r?\\n/)) return;
+		e.preventDefault();
+		pasteList(text);
+	});
 
 	pick(document.getElementById('btnFiles'), pickFiles);
 	pick(document.getElementById('btnFolder'), pickFolder);
@@ -246,9 +277,9 @@
 		if (stage.contains(e.target)) e.preventDefault();
 	});
 
-	function copy(path) {
+	function copy(path, message) {
 		if (!navigator.clipboard) return flash('clipboard unavailable');
-		navigator.clipboard.writeText(path).then(function () { flash('path copied'); },
+		navigator.clipboard.writeText(path).then(function () { flash(message || 'path copied'); },
 			function () { flash('copy failed'); });
 	}
 

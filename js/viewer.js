@@ -39,8 +39,9 @@ var Viewer = (function () {
 	}
 
 	function sameItem(a, b) {
+		if (a.src && b.src) return a.src === b.src;
 		if (a.file === b.file) return true;
-		if (a.path !== b.path) return false;
+		if (a.path !== b.path || !a.file || !b.file) return false;
 		return a.file.size === b.file.size && a.file.lastModified === b.file.lastModified;
 	}
 
@@ -80,8 +81,8 @@ var Viewer = (function () {
 		busy = 1;
 		var mine = ++token;
 		release();
-		url = URL.createObjectURL(list[n].file);
 		var item = list[n];
+		url = item.file ? URL.createObjectURL(item.file) : '';
 		var finish = function (bad) {
 			if (mine !== token) return false;
 			busy = 0;
@@ -107,7 +108,7 @@ var Viewer = (function () {
 		img.onerror = function () {
 			finish(1);
 		};
-		img.src = url;   // the previous frame stays up until this one decodes
+		img.src = url || item.src;   // the previous frame stays up until this one decodes
 	}
 
 	function goto(i) { show(i); }

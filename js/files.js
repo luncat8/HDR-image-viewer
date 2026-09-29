@@ -43,7 +43,21 @@ var Files = (function () {
 	function isImage(file) { return !!file && EXT.has(extOf(file.name || '')); }
 
 	function item(file, path) {
-		return { file: file, path: path || file.webkitRelativePath || file.name };
+		return { file: file, path: path || file.webkitRelativePath || file.name, src: '' };
+	}
+
+	function fromPaths(text, base) {
+		var lines = String(text || '').split(/\\r?\\n/);
+		var out = [];
+		for (var i = 0; i < lines.length; i++) {
+			var path = lines[i].trim();
+			if (!path || !EXT.has(extOf(path.split(/[?#]/)[0]))) continue;
+			try {
+				var src = new URL(path, base || document.baseURI).href;
+				out.push({ file: null, path: path, src: src });
+			} catch (e) {}
+		}
+		return out;
 	}
 
 	function byPath(a, b) { return natCmp(a.path, b.path); }
@@ -261,6 +275,7 @@ var Files = (function () {
 
 	return {
 		isImage: isImage,
+		fromPaths: fromPaths,
 		fromInput: fromInput,
 		fromDataTransfer: fromDataTransfer,
 		natCmp: natCmp
