@@ -164,5 +164,41 @@ eq('empty list detaches src', pic.src, '');
 eq('empty list reported', events.pop(), ['', -1, 0, 0, 0, 0]);
 eq('current item is null with no images', Viewer.item(), null);
 
+// --- present/blank: an async display stage between decode and report ---
+const staged = [];
+let blanks = 0;
+Viewer.present = (el, it, finish) => staged.push({ el, path: it.path, finish });
+Viewer.blank = () => { blanks++; };
+requests.length = 0;
+Viewer.setImages([item('s.png'), item('t.png')], 0);
+decode(requests.pop(), 50, 40);
+eq('present gets the decoded img and its item', staged.map(x => [x.el === pic, x.path]), [[true, 's.png']]);
+eq('busy until present finishes', Viewer.busy(), true);
+const eventsStaged = events.length;
+next();
+eq('steps during present are dropped', [Viewer.index(), requests.length], [0, 0]);
+eq('no report before present finishes', events.length, eventsStaged);
+eq('finish on the current load returns true', staged.pop().finish(0), true);
+eq('reported after present', events.pop(), ['s.png', 0, 2, 50, 40, 0]);
+eq('free to step after present', Viewer.busy(), false);
+
+next();
+decode(requests.pop(), 60, 60);
+const stale = staged.pop();
+Viewer.setImages([item('u.png')], 0);
+eq('finish on a superseded load returns false', stale.finish(0), false);
+eq('superseded present reports nothing', events.length, eventsStaged);
+decode(requests.pop(), 70, 70);
+staged.pop().finish(1);
+eq('a stage failure is reported as a failure', events.pop(), ['u.png', 0, 1, 70, 70, 1]);
+eq('a stage failure blanks the stage', blanks, 1);
+
+Viewer.setImages([item('v.png')], 0);
+decode(requests.pop(), 1, 1, true);
+eq('a decode failure blanks without presenting', [blanks, staged.length], [2, 0]);
+Viewer.destroy();
+eq('emptying blanks the stage', blanks, 3);
+Viewer.present = Viewer.blank = null;
+
 console.log(fail ? fail + ' FAILED' : 'viewer.js OK (' + pass + ' checks)');
 process.exit(fail ? 1 : 0);

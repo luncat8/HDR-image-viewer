@@ -19,6 +19,11 @@ var Viewer = (function () {
 
 	api.onchange = null;   // (path, index, count, width, height, failed)
 	api.onempty = null;
+	// optional display stage between decode and report, e.g. a GPU upload. present(img, item,
+	// finish) keeps the load busy until it calls finish(bad), which returns false once the load
+	// has been superseded so the stage knows not to swap its output in. blank() hides it.
+	api.present = null;
+	api.blank = null;
 
 	function release() {
 		if (!url) return;
@@ -62,6 +67,7 @@ var Viewer = (function () {
 			busy = 0;
 			release();
 			img.removeAttribute('src');
+			if (api.blank) api.blank();
 			report();
 			return;
 		}
@@ -75,20 +81,28 @@ var Viewer = (function () {
 		var mine = ++token;
 		release();
 		url = URL.createObjectURL(list[n].file);
+		var item = list[n];
 		var finish = function (bad) {
-			if (mine !== token) return;
+			if (mine !== token) return false;
 			busy = 0;
 			failed = bad ? 1 : 0;
+			if (bad && api.blank) api.blank();
 			report();
+			return true;
+		};
+		var decoded = function () {
+			if (mine !== token) return;
+			if (api.present) return api.present(img, item, finish);
+			finish(0);
 		};
 		img.onload = function () {
 			if (mine !== token) return;
 			// in Firefox, onload fires before pixel decode; decode() waits until ready to paint
 			if (typeof img.decode === 'function') {
-				img.decode().then(function () { finish(0); }, function () { finish(0); });
+				img.decode().then(decoded, decoded);
 				return;
 			}
-			finish(0);
+			decoded();
 		};
 		img.onerror = function () {
 			finish(1);

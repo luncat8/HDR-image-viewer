@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Image Viewer · WebGPU HDR</title>
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/gpu.css">
+</head>
+<body>
+<div id="stage">
+	<canvas id="gpu" class="off"></canvas>
+	<img id="native" class="off" alt="" draggable="false">
+	<img id="pic" alt="" hidden>
+	<p id="bad" hidden></p>
+</div>
+
+<div id="empty">
+	<h1>Drop files or folders</h1>
+	<p>SDR &rarr; HDR range expander &middot; WebGPU f16 canvas</p>
+	<p>or move pointer to left edge / long press / <b>F</b> for menu</p>
+	<p class="keys">
+		<b>&larr;</b> <b>&rarr;</b> <b>space</b> or <b>wheel</b> &mdash; prev / next &middot;
+		<b>C</b> &mdash; copy path &middot;
+		<b>E</b> &mdash; expander on / off
+	</p>
+	<p id="noGpu" class="warn" hidden>WebGPU is not available in this browser &mdash; images open as plain &lt;img&gt;.
+		<a href="index.html">Open the &lt;img&gt; viewer</a></p>
+</div>
+
+<div id="toast"></div>
+
+<aside id="list" hidden>
+	<nav class="pages">
+		<b>WebGPU HDR viewer</b>
+		<a href="index.html">&lt;img&gt; viewer</a>
+	</nav>
+	<header>
+		<button id="btnFiles" type="button">Open Files</button>
+		<button id="btnFolder" type="button">Open Folder</button>
+		<button id="btnForget" type="button" title="Forget all">Forget</button>
+		<button id="btnClose" type="button" title="Close">X</button>
+	</header>
+	<section id="adjust">
+		<p id="status">starting WebGPU&hellip;</p>
+		<p id="mode">no image</p>
+		<fieldset id="sdr">
+			<legend>SDR &rarr; HDR</legend>
+			<label class="check"><input type="checkbox" id="on"> expander <kbd>E</kbd></label>
+			<canvas id="hist" width="600" height="180"></canvas>
+			<input type="range" id="black" class="level" min="0" max="1" step="0.002" title="black point">
+			<input type="range" id="white" class="level" min="0" max="1" step="0.002" title="white point">
+			<p class="pair"><span>black <output id="blackOut"></output></span><span>white <output id="whiteOut"></output></span></p>
+			<label class="slider"><span>exposure</span><input type="range" id="exposure" min="-3" max="3" step="0.05"><output id="exposureOut"></output></label>
+			<label class="slider"><span>highlights</span><input type="range" id="peak" min="0" max="4" step="0.05"><output id="peakOut"></output></label>
+			<p class="btns"><button id="btnAuto" type="button">Auto levels</button><button id="btnReset" type="button">Reset</button></p>
+		</fieldset>
+		<fieldset id="hdr">
+			<legend>HDR image</legend>
+			<label class="slider"><span>headroom</span><input type="range" id="limit" min="0" max="100" step="1"><output id="limitOut"></output></label>
+			<p class="note" id="hdrNote">shown natively by the browser, the SDR expander is not applied</p>
+		</fieldset>
+	</section>
+	<div id="listSub">
+		<span id="listCount">0 images</span>
+	</div>
+	<ol id="listItems"></ol>
+</aside>
+
+<input type="file" id="pickFiles" accept="image/*" multiple hidden>
+<input type="file" id="pickFolder" webkitdirectory directory multiple hidden>
+
+<script src="js/files.js"></script>
+<script src="js/viewer.js"></script>
+<script src="js/sniff.js"></script>
+<script src="js/gpu.js"></script>
+<script src="js/app.js"></script>
+<script src="js/expand.js"></script>
+</body>
+</html>

@@ -319,3 +319,40 @@ exactly the new assertions fail. A diagnostic that does not fail pre-fix is not 
 reproduction — either the bug is not the one modelled, or the fix is not load-bearing, and
 both are worth knowing before the code is written.
 
+
+## WebGPU canvas: encoded values, not linear
+
+An `rgba16float` canvas with `colorSpace: 'srgb'` or `'display-p3'` and `toneMapping: { mode:
+'extended' }` takes **sRGB-encoded** values, with the curve continued past 1.0 for HDR. There
+is no linear canvas colour space. Writing linear light makes everything too dark and the HDR
+headroom looks tiny. `copyExternalImageToTexture` into a non-`-srgb` float texture also stores
+encoded values. Decode in the shader only where the math needs linear, then encode again.
+
+## The upload path loses HDR
+
+`createImageBitmap` / `copyExternalImageToTexture` deliver the SDR rendition of PQ/HLG images
+and ignore gain maps. To show an HDR photo at full range, use `<img>`, and limit it with CSS
+`dynamic-range-limit` (`standard` … `no-limit`, `dynamic-range-limit-mix()` for in between).
+
+## An id rule beats `hidden`
+
+`#pic { display: block }` overrides the UA's `[hidden] { display: none }` (id beats attribute
+selector). An element you hide with the attribute needs `#pic[hidden] { display: none; }`.
+
+## Hide a canvas with `visibility`, not `display`
+
+With `display: none` the ResizeObserver reports 0×0, the backing store shrinks to 1×1, and
+the first frame after showing it again is drawn blurry at the wrong size.
+
+## Headless WebGPU in this sandbox
+
+Only the npm registry is reachable: `@sparticuz/chromium` bundles Chromium and SwiftShader.
+Unpack `al2023.tar.br` for the libraries (`LD_LIBRARY_PATH`). Flags: `--enable-unsafe-webgpu
+--enable-features=Vulkan --use-angle=swiftshader --use-vulkan=swiftshader
+--use-webgpu-adapter=swiftshader`. Without `--use-vulkan=swiftshader`, the first canvas
+presentation destroys the device ("Device was destroyed", no JS `destroy()` call). Use
+`file://` pages: `navigator.gpu` is absent on `about:blank`.
+
+To read a canvas back, add `COPY_SRC` to its configuration and copy `getCurrentTexture()` in
+the same task as the draw's submit. After presentation the texture has expired and a copy reads
+zeros.

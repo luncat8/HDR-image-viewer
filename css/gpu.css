@@ -1,0 +1,139 @@
+/* gpu.html only: the canvas stage and the adjustment panel. */
+
+/* #pic is the decoder here, never shown; the canvas or #native is what is on screen */
+#pic[hidden] { display: none; }
+
+#gpu,
+#native {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	display: block;
+}
+
+#native { object-fit: contain; }
+
+/* visibility, not display: the canvas keeps its size so the ResizeObserver never sees 0x0
+   and the first frame after a switch is drawn at the real resolution */
+#gpu.off,
+#native.off { visibility: hidden; }
+
+#empty .warn { color: #d9b36a; max-width: 440px; }
+#empty a { color: #7cc4a0; pointer-events: auto; }
+
+#adjust {
+	flex: none;
+	padding: 8px 12px 10px;
+	border-bottom: 1px solid #2a2a2a;
+	font-size: 11px;
+	color: #999;
+}
+
+#adjust p { margin: 0; }
+#status { color: #777; }
+#mode { color: #bbb; margin-bottom: 6px !important; }
+
+#adjust fieldset {
+	border: 1px solid #2a2a2a;
+	border-radius: 4px;
+	padding: 4px 8px 8px;
+	margin-top: 6px;
+	opacity: 0.55;
+}
+
+#adjust fieldset.active { opacity: 1; border-color: #3d5446; }
+#adjust fieldset:disabled { opacity: 0.3; }
+
+#adjust legend {
+	padding: 0 4px;
+	color: #ccc;
+	font-size: 11px;
+}
+
+#adjust .check { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; cursor: pointer; }
+
+#adjust kbd {
+	font: inherit;
+	font-size: 10px;
+	color: #888;
+	border: 1px solid #3a3a3a;
+	border-radius: 3px;
+	padding: 0 4px;
+}
+
+/* the histogram is inset by half a thumb so the level thumbs sit over its 0 and 1 */
+#hist {
+	display: block;
+	width: calc(100% - 14px);
+	height: 90px;
+	margin: 0 7px;
+	background: #111;
+	border-radius: 2px;
+}
+
+#adjust .pair,
+#adjust .slider {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+#adjust .pair { justify-content: space-between; margin-bottom: 4px; }
+#adjust .slider span { flex: 0 0 62px; }
+#adjust .slider input { flex: 1; min-width: 0; }
+#adjust output { flex: 0 0 60px; text-align: right; color: #ccc; font-variant-numeric: tabular-nums; }
+#adjust .pair output { flex: none; }
+#adjust .note { color: #777; margin-top: 4px; }
+
+#adjust .btns { display: flex; gap: 6px; margin-top: 6px; }
+
+#adjust .btns button {
+	flex: 1;
+	font: inherit;
+	font-size: 11px;
+	color: #ddd;
+	background: #2a2a2a;
+	border: 1px solid #3a3a3a;
+	border-radius: 4px;
+	padding: 4px 6px;
+	cursor: pointer;
+}
+
+#adjust .btns button:hover { background: #3a3a3a; }
+
+#adjust input[type=range] {
+	-webkit-appearance: none;
+	appearance: none;
+	height: 18px;
+	background: transparent;
+	cursor: pointer;
+}
+
+#adjust input.level { display: block; width: 100%; margin: 0; }
+
+#adjust input[type=range]::-webkit-slider-runnable-track { height: 3px; background: #333; border-radius: 2px; }
+#adjust input[type=range]::-moz-range-track { height: 3px; background: #333; border-radius: 2px; }
+
+#adjust input[type=range]::-webkit-slider-thumb {
+	-webkit-appearance: none;
+	width: 14px;
+	height: 14px;
+	margin-top: -5.5px;
+	border-radius: 50%;
+	background: #9ecfb0;
+	border: none;
+}
+
+#adjust input[type=range]::-moz-range-thumb {
+	width: 14px;
+	height: 14px;
+	border-radius: 50%;
+	background: #9ecfb0;
+	border: none;
+}
+
+#adjust #black::-webkit-slider-thumb { background: #222; border: 2px solid #9ecfb0; box-sizing: border-box; }
+#adjust #black::-moz-range-thumb { background: #222; border: 2px solid #9ecfb0; box-sizing: border-box; }
+#adjust #white::-webkit-slider-thumb { background: #eee; }
+#adjust #white::-moz-range-thumb { background: #eee; }

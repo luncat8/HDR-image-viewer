@@ -107,6 +107,22 @@ body.dropping::after {
 
 #list[hidden] { display: none; }
 
+/* links between the <img> page and the WebGPU page, top of the menu */
+#list .pages {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 6px 12px;
+	border-bottom: 1px solid #2a2a2a;
+	font-size: 11px;
+}
+
+#list .pages b { color: #9ecfb0; font-weight: 600; }
+#list .pages a { color: #aaa; text-decoration: none; }
+#list .pages a::after { content: " \2192"; }
+#list .pages a:hover { color: #fff; }
+
 #list header {
 	display: flex;
 	align-items: center;
