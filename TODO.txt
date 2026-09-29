@@ -1,10 +1,8 @@
-compare index and GLM implementations
+add separate html with webGPU based canvas viewer. f16.
+add link to each other html to top of menu, also link on main screen in case of webGPUI not supported.
+in menu of webGPU file - add sliders to adj exposure, black, white points on histogram range.
+so it will work as sdr-to-hdr range expander for view images
 
-GLM has better menu style and buttons in it, but bug with same files add again. also do not need tint main screen while menu opened.
-
-both has chrome-windows bug with drop - no files found. firefox drop open good.
-
-in index also bug with event queue need or debounce and/or ignore next/prev till image actually opened
-
-last commit has failed attempts to fix these bugs in index.html, so probably also need to clean of useless leftovers because they actually not fix it.
-
+if possible detect already hdr images and:
+- best to have separate controls: one for srd-to-hdr case, second to hdr-adj. to not apply unnecessary adj to already hdr images.
+- if difficult to read hdr or adjust - then it is ok to skip adj of already hdr and ignore and fallback to <img> representation without canvas for them.
